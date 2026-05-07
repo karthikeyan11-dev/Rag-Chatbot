@@ -1,0 +1,9 @@
+fastapi==0.115.5
+uvicorn==0.32.1
+python-dotenv==1.0.1
+langchain==0.3.7
+langchain-community==0.3.7
+langchain-openai==0.2.9
+chromadb==0.5.18
+pymupdf==1.24.13
+pydantic==2.9.2
