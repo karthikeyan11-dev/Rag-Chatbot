@@ -1,6 +1,6 @@
 import os
 from langchain_community.vectorstores import Chroma
-from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,9 +18,9 @@ def get_vector_store() -> Chroma:
     global _vector_store
     if _vector_store is None:
         os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
-        embeddings = OpenAIEmbeddings(
-            model="text-embedding-3-small",
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/embedding-001",
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
         )
         _vector_store = Chroma(
             collection_name=COLLECTION_NAME,
@@ -35,3 +35,13 @@ def similarity_search(query: str, top_k: int = 4):
     """Perform similarity search and return top_k documents."""
     store = get_vector_store()
     return store.similarity_search(query, k=top_k)
+
+
+def get_collection_size() -> int:
+    """Return the number of documents in the collection."""
+    store = get_vector_store()
+    try:
+        # Chroma's collection.count()
+        return store._collection.count()
+    except Exception:
+        return 0

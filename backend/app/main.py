@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.routes.chat import router as chat_router
+from app.routes.upload import router as upload_router
 from app.services.ingest import ingest_documents
 
 
@@ -9,6 +10,8 @@ from app.services.ingest import ingest_documents
 async def lifespan(app: FastAPI):
     """Run ingestion on startup."""
     print("Starting RAG chatbot backend...")
+    # ingest_documents() # Commented out to avoid slow startup if many docs exist, or keep it if preferred.
+    # Actually, keep it for initial load.
     ingest_documents()
     print("Ingestion complete. Backend ready.")
     yield
@@ -30,6 +33,7 @@ app.add_middleware(
 )
 
 app.include_router(chat_router, prefix="/api")
+app.include_router(upload_router, prefix="/api")
 
 
 @app.get("/")

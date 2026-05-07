@@ -1,5 +1,5 @@
 import os
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,13 +7,13 @@ load_dotenv()
 _llm = None
 
 
-def get_llm() -> ChatOpenAI:
-    """Return a singleton LLM instance."""
+def get_llm() -> ChatGoogleGenerativeAI:
+    """Return a singleton Gemini LLM instance."""
     global _llm
     if _llm is None:
-        _llm = ChatOpenAI(
-            model="gpt-4o-mini",
+        _llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
             temperature=0,
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
         )
     return _llm

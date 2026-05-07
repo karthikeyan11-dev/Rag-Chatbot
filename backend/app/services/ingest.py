@@ -62,7 +62,7 @@ def ingest_documents():
     pdf_files = [f for f in os.listdir(PDF_DIR) if f.lower().endswith(".pdf")]
 
     if not pdf_files:
-        print(f"No PDFs found in {PDF_DIR}. Add PDF files and restart the server.")
+        print(f"No PDFs found in {PDF_DIR}.")
         return
 
     print(f"Found {len(pdf_files)} PDF(s): {pdf_files}")
@@ -84,12 +84,25 @@ def ingest_documents():
 
     vector_store = get_vector_store()
 
+    # Clear existing collection to avoid stale data or duplicates if files changed
+    # In a real production system, you'd use more sophisticated sync logic
+    try:
+        # Get count before clearing
+        count = vector_store._collection.count()
+        if count > 0:
+            # Re-creating the store is sometimes safer in Chroma if clearing fails
+            vector_store.delete_collection()
+            # Re-initialize
+            vector_store = get_vector_store()
+    except Exception as e:
+        print(f"Note: Could not clear collection: {e}")
+
     texts = [c["text"] for c in chunks]
     metadatas = [c["metadata"] for c in chunks]
 
-    # Use unique IDs based on source + page + chunk_index to allow re-ingestion safely
+    # Use unique IDs based on source + page + chunk_index
     ids = [
-        f"{m['source']}__page{m['page']}__chunk{m['chunk_index']}"
+        f"{m['source']}__p{m['page']}__c{m['chunk_index']}"
         for m in metadatas
     ]
 
