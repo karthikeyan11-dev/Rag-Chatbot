@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="RAG Chatbot API",
-    description="Company Policy RAG Chatbot powered by LangChain + ChromaDB",
+    description="Company Policy RAG Chatbot powered by LangChain + ChromaDB + Google Gemini",
     version="1.0.0",
     lifespan=lifespan,
 )

@@ -1,6 +1,6 @@
 # RAG Chatbot — Backend
 
-FastAPI backend powering the RAG pipeline with ChromaDB vector storage and OpenAI LLM.
+FastAPI backend powering the RAG pipeline with ChromaDB vector storage and Google Gemini LLM.
 
 ## Tech Stack
 
@@ -8,7 +8,7 @@ FastAPI backend powering the RAG pipeline with ChromaDB vector storage and OpenA
 - **LangChain** — orchestrates the RAG pipeline (splitting, retrieval, LLM calls)
 - **ChromaDB** — local vector database for storing and querying embeddings
 - **PyMuPDF** — fast, reliable PDF text extraction
-- **OpenAI API** — embeddings (`text-embedding-3-small`) + LLM (`gpt-4o-mini`)
+- **Google Gemini API** — embeddings (`models/embedding-001`) + LLM (`gemini-1.5-flash`)
 
 ## Setup
 
@@ -31,7 +31,8 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and add your OpenAI API key
+# Edit .env and add your Gemini API key
+GOOGLE_API_KEY=your_gemini_api_key_here
 ```
 
 ### 4. Add company policy PDFs
@@ -92,7 +93,7 @@ Health check — returns `{ "status": "ok" }`.
 
 ### 2. Retrieval
 
-- User question is embedded using `text-embedding-3-small`
+- User question is embedded using `models/embedding-001`
 - ChromaDB performs cosine similarity search
 - Top 4 (`top_k=4`) most relevant chunks are retrieved
 
@@ -103,7 +104,7 @@ Health check — returns `{ "status": "ok" }`.
   - Answer ONLY from provided context
   - Do NOT hallucinate
   - If answer is unavailable: `"I don't have that information in the company documents."`
-- `gpt-4o-mini` generates the final answer
+- `gemini-1.5-flash` generates the final answer
 
 ### Why ChromaDB?
 
