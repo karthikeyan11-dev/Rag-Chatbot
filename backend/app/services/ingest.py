@@ -1,7 +1,7 @@
 import os
 import fitz  # PyMuPDF
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from app.services.vector_store import get_vector_store
+from app.services.vector_store import get_vector_store, reset_vector_store, get_qdrant_client, COLLECTION_NAME
 
 PDF_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "pdfs")
 PDF_DIR = os.path.abspath(PDF_DIR)
@@ -54,7 +54,7 @@ def chunk_pages(pages: list[dict]) -> list[dict]:
 
 
 def ingest_documents():
-    """Main ingestion pipeline: load PDFs → extract → chunk → embed → store."""
+    """Main ingestion pipeline: load PDFs → extract → chunk → embed → store in Qdrant."""
     if not os.path.exists(PDF_DIR):
         os.makedirs(PDF_DIR, exist_ok=True)
         print(f"Created PDF directory: {PDF_DIR}")
@@ -80,31 +80,58 @@ def ingest_documents():
 
     print(f"Extracted {len(all_pages)} page(s). Chunking...")
     chunks = chunk_pages(all_pages)
-    print(f"Generated {len(chunks)} chunk(s). Storing in ChromaDB...")
+    print(f"Generated {len(chunks)} chunk(s). Storing in Qdrant...")
 
-    vector_store = get_vector_store()
+    client = get_qdrant_client()
 
-    # Clear existing collection to avoid stale data or duplicates if files changed
-    # In a real production system, you'd use more sophisticated sync logic
+    # Clear existing collection to avoid stale data or duplicates
     try:
-        # Get count before clearing
-        count = vector_store._collection.count()
-        if count > 0:
-            # Re-creating the store is sometimes safer in Chroma if clearing fails
-            vector_store.delete_collection()
-            # Re-initialize
-            vector_store = get_vector_store()
+        # Some versions of qdrant-client might throw 404 instead of returning False
+        exists = False
+        try:
+            exists = client.collection_exists(COLLECTION_NAME)
+        except Exception:
+            exists = False
+
+        if exists:
+            print(f"Clearing existing collection: {COLLECTION_NAME}")
+            client.delete_collection(COLLECTION_NAME)
+            # Reset singleton to ensure fresh initialization
+            reset_vector_store()
     except Exception as e:
         print(f"Note: Could not clear collection: {e}")
+
+    vector_store = get_vector_store()
 
     texts = [c["text"] for c in chunks]
     metadatas = [c["metadata"] for c in chunks]
 
-    # Use unique IDs based on source + page + chunk_index
-    ids = [
-        f"{m['source']}__p{m['page']}__c{m['chunk_index']}"
-        for m in metadatas
-    ]
+    # Use deterministic UUIDs based on source + page + chunk_index
+    # Qdrant requires IDs to be integers or UUIDs
+    import uuid
+    import time
+    
+    all_ids = []
+    for m in metadatas:
+        uid_string = f"{m['source']}__p{m['page']}__c{m['chunk_index']}"
+        all_ids.append(str(uuid.uuid5(uuid.NAMESPACE_DNS, uid_string)))
 
-    vector_store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
-    print(f"Ingestion complete. {len(chunks)} chunks stored.")
+    # Process in batches to avoid Gemini API rate limits (100 RPM for free tier)
+    # 5 chunks every 12 seconds = 25 chunks per minute (well under the 100 RPM limit)
+    BATCH_SIZE = 5
+    total_chunks = len(chunks)
+    print(f"Starting ingestion of {total_chunks} chunks in batches of {BATCH_SIZE}...")
+    
+    for i in range(0, total_chunks, BATCH_SIZE):
+        batch_texts = texts[i:i + BATCH_SIZE]
+        batch_metadatas = metadatas[i:i + BATCH_SIZE]
+        batch_ids = all_ids[i:i + BATCH_SIZE]
+        
+        print(f"Storing batch {i//BATCH_SIZE + 1}/{(total_chunks-1)//BATCH_SIZE + 1} ({len(batch_texts)} chunks)...")
+        vector_store.add_texts(texts=batch_texts, metadatas=batch_metadatas, ids=batch_ids)
+        
+        if i + BATCH_SIZE < total_chunks:
+            print(f"Waiting 12 seconds to avoid rate limits... ({total_chunks - (i + BATCH_SIZE)} chunks remaining)")
+            time.sleep(12) 
+
+    print(f"Ingestion complete. {total_chunks} chunks stored in Qdrant.")

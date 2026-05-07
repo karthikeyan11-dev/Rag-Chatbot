@@ -1,14 +1,14 @@
 # RAG Chatbot — Backend
 
-FastAPI backend powering the RAG pipeline with ChromaDB vector storage and Google Gemini LLM.
+FastAPI backend powering the RAG pipeline with Qdrant vector storage and Google Gemini LLM.
 
 ## Tech Stack
 
 - **FastAPI** — lightweight, async Python web framework
 - **LangChain** — orchestrates the RAG pipeline (splitting, retrieval, LLM calls)
-- **ChromaDB** — local vector database for storing and querying embeddings
+- **Qdrant** — high-performance vector database (running in Docker)
 - **PyMuPDF** — fast, reliable PDF text extraction
-- **Google Gemini API** — embeddings (`models/embedding-001`) + LLM (`gemini-1.5-flash`)
+- **Google Gemini API** — embeddings (`models/gemini-embedding-2`) + LLM (`gemini-1.5-flash`)
 
 ## Setup
 
