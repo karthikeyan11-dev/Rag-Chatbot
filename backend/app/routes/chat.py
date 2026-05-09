@@ -1,8 +1,10 @@
+import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from app.services.rag_pipeline import get_answer
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ChatRequest(BaseModel):
@@ -22,11 +24,15 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
 
     if len(question) > 2000:
-        raise HTTPException(status_code=400, detail="Question is too long. Max 2000 characters.")
+        raise HTTPException(status_code=400, detail="Question is too long. Please limit to 2000 characters.")
 
     try:
+        logger.info(f"Chat request received: '{question[:80]}...'")
         result = get_answer(question)
         return ChatResponse(answer=result["answer"], sources=result["sources"])
     except Exception as e:
-        print(f"Error processing chat request: {e}")
-        raise HTTPException(status_code=500, detail="An error occurred while processing your question.")
+        logger.error(f"Error processing chat request: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while processing your question. Please try again."
+        )

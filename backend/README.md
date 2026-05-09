@@ -1,120 +1,60 @@
 # RAG Chatbot — Backend
 
-FastAPI backend powering the RAG pipeline with Qdrant vector storage and Google Gemini LLM.
+FastAPI backend powering a production-grade RAG pipeline with **ChromaDB** local persistent storage and **Google Gemini** LLM.
 
 ## Tech Stack
 
-- **FastAPI** — lightweight, async Python web framework
+- **FastAPI** — high-performance, async Python web framework
 - **LangChain** — orchestrates the RAG pipeline (splitting, retrieval, LLM calls)
-- **Qdrant** — high-performance vector database (running in Docker)
-- **PyMuPDF** — fast, reliable PDF text extraction
-- **Google Gemini API** — embeddings (`models/gemini-embedding-2`) + LLM (`gemini-1.5-flash`)
+- **ChromaDB** — local persistent vector database (no external service required)
+- **PyMuPDF** — reliable PDF text extraction
+- **Google Gemini API** — embeddings (`gemini-embedding-2`) + LLM (`gemini-2.0-flash`)
 
 ## Setup
 
-### 1. Create and activate a virtual environment
-
+### 1. Python Environment
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate       # macOS/Linux
-venv\Scripts\activate          # Windows
-```
-
-### 2. Install dependencies
-
-```bash
+venv\Scripts\activate  # Windows
+source venv/bin/activate # macOS/Linux
 pip install -r requirements.txt
 ```
 
-### 3. Configure environment variables
-
+### 2. Environment Configuration
+Create a `.env` file from the example:
 ```bash
 cp .env.example .env
-# Edit .env and add your Gemini API key
-GOOGLE_API_KEY=your_gemini_api_key_here
 ```
+Ensure `GOOGLE_API_KEY` is set. No external database URL is required as ChromaDB runs locally.
 
-### 4. Add company policy PDFs
+### 3. Database Persistence
+ChromaDB stores all vectors and metadata locally in:
+`backend/app/db/chroma_db/`
 
-Place your PDF files inside:
+This ensures that your indexed documents survive server restarts and are instantly available.
 
-```
-backend/app/data/pdfs/
-```
+---
 
-The backend ingests all `.pdf` files in this folder automatically on startup.
+## RAG Pipeline Overview
 
-### 5. Start the server
+### 1. Ingestion (Background Processing)
+- **Parsing**: Scans `backend/app/data/pdfs/` using **PyMuPDF**.
+- **Chunking**: Uses `RecursiveCharacterTextSplitter` (`chunk_size=500`, `overlap=50`).
+- **Persistence Check**: Before indexing, the system queries the local ChromaDB to check if the document is already indexed to avoid duplicates.
+- **Embedding**: Generates vectors using `models/gemini-embedding-2`.
+- **Storage**: Chunks are stored with metadata in the local **ChromaDB** persist directory.
 
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-The API will be available at `http://localhost:8000`.
+### 2. Retrieval & Generation
+- **Similarity Search**: User queries are embedded and matched against ChromaDB using Cosine Similarity.
+- **Grounding**: The top 4 context chunks are injected into a strict system prompt.
+- **LLM Generation**: `gemini-2.0-flash` generates an answer based **strictly** on the provided context.
 
 ---
 
 ## API Endpoints
 
-### `POST /api/chat`
-
-Send a question and receive a grounded answer.
-
-**Request:**
-```json
-{ "question": "What is the leave policy for sick days?" }
-```
-
-**Response:**
-```json
-{
-  "answer": "Employees are entitled to 12 sick days per year...",
-  "sources": ["Leave Policy.pdf", "HR Policy.pdf"]
-}
-```
-
-### `GET /`
-
-Health check — returns `{ "status": "ok" }`.
-
----
-
-## RAG Pipeline Explanation
-
-### 1. Ingestion (on startup)
-
-1. Scans `backend/app/data/pdfs/` for PDF files
-2. Extracts text per page using **PyMuPDF**
-3. Chunks text using **RecursiveCharacterTextSplitter**
-   - `chunk_size=500` — balances context richness with retrieval precision
-   - `chunk_overlap=50` — ensures no information is lost at chunk boundaries
-4. Stores chunks + metadata (source filename, page number, chunk index) in **ChromaDB**
-
-### 2. Retrieval
-
-- User question is embedded using `models/embedding-001`
-- ChromaDB performs cosine similarity search
-- Top 4 (`top_k=4`) most relevant chunks are retrieved
-
-### 3. Generation
-
-- Retrieved chunks are assembled into a context block
-- A strict grounded system prompt instructs the LLM:
-  - Answer ONLY from provided context
-  - Do NOT hallucinate
-  - If answer is unavailable: `"I don't have that information in the company documents."`
-- `gemini-1.5-flash` generates the final answer
-
-### Why ChromaDB?
-
-- Runs fully locally, no external service needed
-- Persistent storage across restarts
-- Native LangChain integration
-- Fast enough for assessment/demo scale
-
-### Why chunk_size=500, overlap=50?
-
-- `500` tokens captures enough context per chunk for meaningful retrieval without being too broad
-- `50` token overlap prevents answers from being split at chunk boundaries
-- Empirically well-suited for policy documents with structured paragraphs
+- `POST /api/chat`: Grounded question answering.
+- `POST /api/upload`: Upload PDFs for background ingestion.
+- `GET /api/documents`: List currently indexed documents.
+- `GET /`: Health check and system status.

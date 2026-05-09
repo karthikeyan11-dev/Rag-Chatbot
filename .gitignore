@@ -1,34 +1,50 @@
 # Python
+.venv/
+venv/
+env/
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
-venv/
-env/
-.venv/
-venv*/
 *.egg-info/
-dist/
 build/
+dist/
 
 # Environment
 .env
 *.env
+.env.local
+.env.*.local
 
-# ChromaDB (vector store data — re-generated on ingestion)
+# ChromaDB & Local Data
 backend/app/db/chroma_db/
+backend/app/data/pdfs/
+backend/app/data/cache/
 
-# Node
+# Frontend
 node_modules/
 dist/
+dist-ssr/
+*.local
 .DS_Store
 
-# IDE
+# IDE & Tools
 .vscode/
 .idea/
 *.swp
 *.swo
+.project
+.pydevproject
+.settings/
 
 # Logs
 *.log
+logs/
+
+# Temporary
+scratch/
+temp/
+tmp/
+*.tmp
+*.bak

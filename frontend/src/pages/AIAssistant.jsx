@@ -54,7 +54,9 @@ export default function AIAssistant() {
         setHasDocs(true);
       }
     } catch (err) {
-      setError(err.message || "Something went wrong. Please try again.");
+      // Extract meaningful error message from backend if available
+      const errMsg = err.message || "Something went wrong. Please try again.";
+      setError(errMsg);
     } finally {
       setIsLoading(false);
     }
@@ -67,7 +69,7 @@ export default function AIAssistant() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-slate-50 relative">
-      {/* Banner */}
+      {/* Dynamic Status Banner */}
       {!hasDocs ? (
         <div className="flex-shrink-0 bg-amber-50 border-b border-amber-100 px-4 py-3">
           <div className="max-w-3xl mx-auto flex items-center gap-3 text-sm font-medium text-amber-800">
@@ -81,12 +83,12 @@ export default function AIAssistant() {
           </div>
         </div>
       ) : (
-        <div className="flex-shrink-0 bg-purple-50 border-b border-purple-100 px-4 py-2">
-          <div className="max-w-3xl mx-auto flex items-center justify-center gap-2 text-xs font-medium text-purple-700">
+        <div className="flex-shrink-0 bg-indigo-50 border-b border-indigo-100 px-4 py-2">
+          <div className="max-w-3xl mx-auto flex items-center justify-center gap-2 text-xs font-medium text-indigo-700">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Powered by Gemini 1.5 & SWS AI company documents. Ask anything about company policies.
+            <span>Powered by <strong>Gemini 2.0 Flash</strong> • Analyzing SWS AI company documents.</span>
           </div>
         </div>
       )}
@@ -121,7 +123,7 @@ export default function AIAssistant() {
       {messages.length > 0 && (
         <button
           onClick={handleClear}
-          className="absolute top-14 right-8 text-xs text-slate-400 hover:text-slate-600 transition-colors px-2 py-1 rounded hover:bg-slate-200 bg-slate-100 shadow-sm"
+          className="absolute top-14 right-8 text-xs text-slate-400 hover:text-slate-600 transition-colors px-2 py-1 rounded hover:bg-slate-200 bg-slate-100 shadow-sm border border-slate-200"
         >
           Clear chat
         </button>
