@@ -18,7 +18,7 @@ dist/
 .env.*.local
 
 # ChromaDB & Local Data
-backend/app/db/chroma_db/
+backend/app/chroma_db/
 backend/app/data/pdfs/
 backend/app/data/cache/
 

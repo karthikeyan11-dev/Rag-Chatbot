@@ -14,7 +14,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Persistence settings
-DB_DIR = os.path.join(os.path.dirname(__file__), "..", "db", "chroma_db")
+DB_DIR = os.path.join(os.path.dirname(__file__), "..", "chroma_db")
 DB_DIR = os.path.abspath(DB_DIR)
 COLLECTION_NAME = "company_policies"
 
