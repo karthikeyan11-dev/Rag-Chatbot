@@ -1,13 +1,31 @@
-import { useState } from "react";
+﻿import { useState, useEffect } from "react";
 
-export default function ChatInput({ onSend, isLoading }) {
-  const [value, setValue] = useState("");
+export default function ChatInput({ onSend, isLoading, value: externalValue, onChange }) {
+  const [internalValue, setInternalValue] = useState("");
+  
+  // Sync with external value if provided (for suggestions)
+  useEffect(() => {
+    if (externalValue !== undefined) {
+      setInternalValue(externalValue);
+    }
+  }, [externalValue]);
+
+  const handleTextChange = (e) => {
+    const newVal = e.target.value;
+    setInternalValue(newVal);
+    if (onChange) onChange(newVal);
+    
+    // Auto-resize textarea
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
+  };
 
   const handleSubmit = () => {
-    const trimmed = value.trim();
+    const trimmed = internalValue.trim();
     if (!trimmed || isLoading) return;
     onSend(trimmed);
-    setValue("");
+    setInternalValue("");
+    if (onChange) onChange("");
   };
 
   const handleKeyDown = (e) => {
@@ -22,8 +40,8 @@ export default function ChatInput({ onSend, isLoading }) {
       <div className="max-w-3xl mx-auto">
         <div className="relative flex items-center group">
           <textarea
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
+            value={internalValue}
+            onChange={handleTextChange}
             onKeyDown={handleKeyDown}
             placeholder="Ask about policies, leave, benefits..."
             disabled={isLoading}
@@ -34,14 +52,10 @@ export default function ChatInput({ onSend, isLoading }) {
               minHeight: "56px",
               maxHeight: "160px",
             }}
-            onInput={(e) => {
-              e.target.style.height = "auto";
-              e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
-            }}
           />
           <button
             onClick={handleSubmit}
-            disabled={!value.trim() || isLoading}
+            disabled={!internalValue.trim() || isLoading}
             className="absolute right-3 w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white flex items-center justify-center transition-all duration-200 shadow-md shadow-blue-100 active:scale-95"
             aria-label="Send message"
           >
@@ -64,4 +78,3 @@ export default function ChatInput({ onSend, isLoading }) {
     </div>
   );
 }
-

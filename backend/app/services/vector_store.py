@@ -30,7 +30,7 @@ def get_vector_store() -> Chroma:
             logger.info(f"Using ChromaDB directory: {DB_DIR}")
 
             embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/embedding-001",
+                model="models/gemini-embedding-2",
                 google_api_key=os.getenv("GOOGLE_API_KEY"),
                 task_type="retrieval_document"
             )

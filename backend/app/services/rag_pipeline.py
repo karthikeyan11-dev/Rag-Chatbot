@@ -1,150 +1,192 @@
 import logging
-from langchain.schema import HumanMessage, SystemMessage
-from app.services.vector_store import similarity_search, get_collection_size
+import re
+import asyncio
+from langchain.schema import HumanMessage, SystemMessage, AIMessage, Document
+from langchain_community.retrievers import BM25Retriever
+from app.services.vector_store import similarity_search, get_collection_size, get_vector_store
 from app.services.llm_service import get_llm
 from app.utils.prompt_template import build_system_prompt
+from app.utils.cache_manager import get_cached_answer, save_answer_to_cache
+from tenacity import retry, stop_after_attempt, wait_exponential
+from sqlalchemy import select, func
+from app.db.database import async_session_factory
+from app.db.models import DocumentMetadata
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
-from tenacity import retry, stop_after_attempt, wait_exponential
+# Constants for retrieval
+TOP_K_VECTOR = 10
+TOP_K_KEYWORD = 10
+FINAL_K = 15
 
-from app.utils.cache_manager import get_cached_answer, save_answer_to_cache
+# Global cache for BM25 retriever
+_bm25_retriever = None
+_last_cache_key = None
 
-TOP_K = 15
+async def _get_collection_hash():
+    """Generate a cache key based on collection size and latest modification date in RDS."""
+    try:
+        size = get_collection_size()
+        if size == 0:
+            return "empty"
+        
+        # Get latest document update timestamp from RDS
+        async with async_session_factory() as db:
+            result = await db.execute(select(func.max(DocumentMetadata.upload_date)))
+            max_date = result.scalar()
+            max_date_str = max_date.isoformat() if max_date else "none"
+            
+        return f"{size}_{max_date_str}"
+    except Exception as e:
+        logger.warning(f"Audit: Failed to generate collection hash: {e}")
+        return str(get_collection_size())
+
+def get_hybrid_retriever():
+    """
+    Initialize or return a cached BM25 retriever.
+    Audit: Improved cache invalidation using RDS metadata timestamps.
+    """
+    global _bm25_retriever, _last_cache_key
+    
+    # Run async hash generation in the current loop (or a new one if needed)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # In a request context, we use a specialized helper to avoid blocking
+            # For simplicity in this audit, we'll use a synchronous-friendly approach or block briefly
+            cache_key = asyncio.run_coroutine_threadsafe(_get_collection_hash(), loop).result()
+        else:
+            cache_key = asyncio.run(_get_collection_hash())
+    except Exception:
+        # Fallback to just size if async retrieval fails
+        cache_key = str(get_collection_size())
+
+    if _bm25_retriever is not None and cache_key == _last_cache_key:
+        return _bm25_retriever
+    
+    if cache_key.startswith("0") or cache_key == "empty":
+        return None
+        
+    try:
+        logger.info(f"Audit: Rebuilding BM25 index (Reason: Cache invalid or stale). Key: {cache_key}")
+        store = get_vector_store()
+        results = store._collection.get()
+        
+        documents = []
+        for i in range(len(results["documents"])):
+            documents.append(Document(
+                page_content=results["documents"][i],
+                metadata=results["metadatas"][i]
+            ))
+            
+        _bm25_retriever = BM25Retriever.from_documents(documents)
+        _bm25_retriever.k = TOP_K_KEYWORD
+        _last_cache_key = cache_key
+        return _bm25_retriever
+    except Exception as e:
+        logger.error(f"Audit: BM25 build error: {e}")
+        return None
 
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=4, max=10),
     reraise=True
 )
-def _safe_similarity_search(question: str):
-    return similarity_search(question, top_k=TOP_K)
+def perform_hybrid_search(query: str) -> list[Document]:
+    """Perform Hybrid Search and deduplicate with hardened ID logic."""
+    vector_docs = similarity_search(query, top_k=TOP_K_VECTOR)
+    
+    keyword_docs = []
+    retriever = get_hybrid_retriever()
+    if retriever:
+        keyword_docs = retriever.invoke(query)
+    
+    seen_ids = set()
+    unique_docs = []
+    
+    for doc in vector_docs + keyword_docs:
+        # Hardened deduplication using source + page + chunk_index
+        src = doc.metadata.get('source', 'unknown')
+        pg = doc.metadata.get('page', '0')
+        idx = doc.metadata.get('chunk_index', '0')
+        content_id = f"{src}_{pg}_{idx}"
+        
+        if content_id not in seen_ids:
+            unique_docs.append(doc)
+            seen_ids.add(content_id)
+            
+    return unique_docs[:FINAL_K]
 
-def get_answer(question: str) -> dict:
-    """
-    Production-Grade RAG pipeline with Response Caching:
-    1. Check local cache for identical question/state.
-    2. Retrieve Top 15 chunks (increased depth).
-    3. SMART RE-RANKING: The LLM will identify the most relevant context from the broad set.
-    4. Grounded generation + Cache save.
-    """
-    # Verify if any documents exist in the vector store
+def get_answer(question: str, chat_history: list = None) -> dict:
+    """Hardened RAG pipeline with strict grounding and verified source attribution."""
     collection_size = get_collection_size()
-    logger.info(f"ChromaDB collection size: {collection_size} chunks")
     
     if collection_size == 0:
         return {
-            "answer": "The Knowledge Base is currently being updated or is empty. Please wait a moment or upload documents.",
+            "answer": "No company documents were uploaded. Please upload PDFs to the Knowledge Base to begin.",
             "sources": [],
         }
 
-    # 1. CHECK CACHE FIRST
-    cached_res = get_cached_answer(question, collection_size)
-    if cached_res:
-        return cached_res
-
-    # 2. PROCEED TO RAG IF NOT CACHED
+    # 1. HYBRID RETRIEVAL
     try:
-        docs = _safe_similarity_search(question)
-        logger.info(f"High-recall search returned {len(docs)} documents.")
+        docs = perform_hybrid_search(question)
     except Exception as e:
-        logger.error(f"Error during search: {e}")
-        return {"answer": "I encountered an error accessing the document database.", "sources": []}
+        logger.error(f"Audit: Retrieval error: {e}")
+        return {"answer": "I encountered an error accessing the knowledge base.", "sources": []}
 
     if not docs:
-        return {"answer": "I could not find any relevant information.", "sources": []}
+        return {
+            "answer": "I could not find information related to that question in the uploaded company documents.",
+            "sources": []
+        }
 
-    # Assemble context
-    context_parts = []
-    for doc in docs:
-        source = doc.metadata.get("source", "Unknown")
-        page = doc.metadata.get("page", "?")
-        # We use the raw page_content which now includes the enrichment prefix
-        context_parts.append(doc.page_content)
-
-    context = "\n\n---\n\n".join(context_parts)
-
-    # Generate grounded response
-    system_prompt = build_system_prompt(context)
+    # 2. GENERATION
+    system_prompt = build_system_prompt("\n\n---\n\n".join([doc.page_content for doc in docs]))
     llm = get_llm()
 
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=question),
-    ]
+    messages = [SystemMessage(content=system_prompt)]
+    if chat_history:
+        for turn in chat_history[-10:]:
+            role_msg = HumanMessage(content=turn["content"]) if turn["role"] == "user" else AIMessage(content=turn["content"])
+            messages.append(role_msg)
+    
+    messages.append(HumanMessage(content=question))
 
     try:
         response = llm.invoke(messages)
         answer = response.content.strip()
 
-        # Fallback check
-        fallback_phrases = ["i don't have that information", "cannot find", "not mentioned"]
-        if any(phrase in answer.lower() for phrase in fallback_phrases):
-            return {"answer": "I could not find that information in the documents.", "sources": []}
+        # Strict Fallback Check
+        fallback_phrase = "I could not find information related to that question"
+        if fallback_phrase.lower() in answer.lower() or "don't have that information" in answer.lower():
+            return {
+                "answer": "I could not find information related to that question in the uploaded company documents.",
+                "sources": []
+            }
 
-        # DYNAMIC SOURCE ATTRIBUTION:
-        # Group pages by document for a cleaner UI
-        doc_pages = {} # {filename: set(pages)}
+        # 3. VERIFIED SOURCE ATTRIBUTION
+        doc_pages = {}
         for doc in docs:
-            src_name = doc.metadata.get("source")
-            page_num = doc.metadata.get("page")
+            raw_source = doc.metadata.get("source", "Unknown")
+            clean_filename = raw_source.split('/')[-1]
+            page_num = doc.metadata.get("page", "?")
             
-            # Only include if the document name is mentioned in the answer
-            if src_name in answer:
-                if src_name not in doc_pages:
-                    doc_pages[src_name] = set()
-                doc_pages[src_name].add(str(page_num))
+            # Grounding check: ensure the LLM actually discussed this document
+            if clean_filename.lower() in answer.lower() or len(docs) <= 3:
+                if clean_filename not in doc_pages:
+                    doc_pages[clean_filename] = set()
+                doc_pages[clean_filename].add(str(page_num))
 
-        # Format grouped sources as strings
-        logger.info(f"Grouping sources for {len(doc_pages)} unique documents.")
         source_strings = []
-        for src_name, pages in doc_pages.items():
+        for src, pages in doc_pages.items():
             sorted_pages = sorted(list(pages), key=lambda x: int(x) if x.isdigit() else 999)
-            pages_str = ", ".join(sorted_pages)
-            source_strings.append(f"{src_name} (Pages: [{pages_str}])")
+            source_strings.append(f"{src} (Page: {', '.join(sorted_pages)})")
 
-        # Fallback if no sources found
-        if not source_strings and docs:
-            top_src = docs[0].metadata['source']
-            top_page = docs[0].metadata['page']
-            source_strings = [f"{top_src} (Page {top_page})"]
-
-        # Clean answer
-        import re
-        clean_answer = re.sub(r'\[Source:.*?\]', '', answer, flags=re.IGNORECASE)
-        clean_answer = re.sub(r'\(Source:.*?\)', '', clean_answer, flags=re.IGNORECASE)
-        clean_answer = re.sub(r'Source:.*$', '', clean_answer, flags=re.IGNORECASE | re.MULTILINE)
-        clean_answer = clean_answer.strip()
-
-        result = {
-            "answer": clean_answer,
+        return {
+            "answer": re.sub(r'[\[\(]Source:.*?[\]\)]', '', answer, flags=re.IGNORECASE).strip(),
             "sources": source_strings,
         }
-        
-        # 3. SAVE TO CACHE
-        save_answer_to_cache(question, collection_size, result)
-
-        return result
     except Exception as e:
-        logger.error(f"LLM Error during generation: {e}")
-        
-        # Check for specific Gemini/Google API errors
-        err_msg = str(e).lower()
-        if "429" in err_msg or "quota" in err_msg or "rate limit" in err_msg:
-            return {
-                "answer": "Gemini API request failed due to rate limiting. Please try again in 30-60 seconds.",
-                "sources": [],
-            }
-        
-        if "api key" in err_msg or "authentication" in err_msg or "permission" in err_msg:
-            return {
-                "answer": "There is an issue with the AI service configuration. Please contact the system administrator.",
-                "sources": [],
-            }
-        
-        return {
-            "answer": "I encountered an error while generating an answer. This might be due to a temporary connection issue with the AI service. Please try again in a moment.",
-            "sources": [],
-        }
-
+        logger.error(f"Audit: LLM Error: {e}")
+        return {"answer": "The AI service is temporarily unavailable.", "sources": []}

@@ -21,6 +21,7 @@ dist/
 backend/app/chroma_db/
 backend/app/data/pdfs/
 backend/app/data/cache/
+backend/app/data/*.db
 
 # Frontend
 node_modules/

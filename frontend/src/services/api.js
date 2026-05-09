@@ -1,12 +1,15 @@
 const API_BASE_URL = "http://localhost:8000/api";
 
-export const sendMessage = async (question) => {
+export const sendMessage = async (question, sessionId = null) => {
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ 
+      question,
+      session_id: sessionId 
+    }),
   });
 
   if (!response.ok) {
@@ -62,5 +65,33 @@ export const deleteDocument = async (filename) => {
     throw new Error(errorData.detail || "Failed to delete the document.");
   }
 
+  return response.json();
+};
+
+// --- Session Management Methods ---
+
+export const getSessions = async () => {
+  const response = await fetch(`${API_BASE_URL}/sessions`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch chat sessions.");
+  }
+  return response.json();
+};
+
+export const getSessionDetail = async (sessionId) => {
+  const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch chat history for this session.");
+  }
+  return response.json();
+};
+
+export const deleteSession = async (sessionId) => {
+  const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to delete chat session.");
+  }
   return response.json();
 };
