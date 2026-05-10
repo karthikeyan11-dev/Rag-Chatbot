@@ -3,11 +3,15 @@ import fitz  # PyMuPDF
 import time
 import uuid
 import logging
+import asyncio
 from langchain_experimental.text_splitter import SemanticChunker
 from app.services.vector_store import get_vector_store
 from app.services.s3_service import s3_service
 from app.utils.cache_manager import clear_chat_cache
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from sqlalchemy import select, update
+from app.db.database import async_session_factory
+from app.db.models import DocumentMetadata
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -21,7 +25,7 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def extract_text_from_s3_pdf(filename: str) -> list[dict]:
+def extract_text_from_s3_pdf(filename: str, user_id: int = None) -> list[dict]:
     """
     Download PDF from S3 and extract text. Hardened for memory and connection safety.
     """
@@ -29,21 +33,16 @@ def extract_text_from_s3_pdf(filename: str) -> list[dict]:
     file_stream = None
     doc = None
     try:
+        # User isolation: use user-specific path in S3 if possible, 
+        # but s3_service uses full path/key usually.
+        # We'll assume 'filename' passed here is actually the S3 Key.
         file_stream = s3_service.get_file_content(filename)
         if not file_stream:
             logger.error(f"S3: Failed to retrieve content for {filename}")
             return []
 
-        if not filename.lower().endswith(".pdf"):
-            logger.warning(f"S3: Skipping non-PDF file {filename}")
-            return []
-
         doc = fitz.open(stream=file_stream, filetype="pdf")
         
-        # Limit processing for extremely large files to prevent OOM
-        if len(doc) > 500:
-            logger.warning(f"Large document detected ({len(doc)} pages). Extraction may be slow.")
-
         for page_num in range(len(doc)):
             page = doc[page_num]
             text = page.get_text("text")
@@ -52,10 +51,11 @@ def extract_text_from_s3_pdf(filename: str) -> list[dict]:
                 pages.append({
                     "text": cleaned_text,
                     "page": page_num + 1,
-                    "source": filename,
+                    "source": os.path.basename(filename),
+                    "user_id": user_id
                 })
         
-        logger.info(f"PyMuPDF: Extracted {len(pages)} pages from {filename}")
+        logger.info(f"PyMuPDF: Extracted {len(pages)} pages from {filename} for user {user_id}")
     except Exception as e:
         logger.error(f"Extraction error for {filename}: {e}")
     finally:
@@ -89,14 +89,15 @@ def chunk_pages_semantically(pages: list[dict]) -> list[dict]:
                 content = chunk.strip()
                 if not content: continue
                 
-                # HARDENING: Richer metadata for cloud traceability
+                # HARDENING: Richer metadata for cloud traceability and user isolation
                 chunks.append({
                     "text": content,
                     "metadata": {
                         "source": page_data["source"],
                         "page": page_data["page"],
                         "chunk_index": idx,
-                        "ingested_at": str(time.time())
+                        "ingested_at": str(time.time()),
+                        "user_id": int(page_data.get("user_id")) if page_data.get("user_id") is not None else -1
                     },
                 })
         return chunks
@@ -111,6 +112,7 @@ def is_document_indexed(filename: str) -> bool:
         vector_store = get_vector_store()
         if vector_store is None: return False
         # Metadata filtering is robust across Chroma restarts
+        # Chroma .get() is blocking but this function is sync.
         results = vector_store._collection.get(where={"source": filename}, limit=1)
         return len(results["ids"]) > 0
     except Exception as e:
@@ -118,27 +120,42 @@ def is_document_indexed(filename: str) -> bool:
         return False
 
 
-def ingest_documents():
-    """Detects documents in S3 and adds them to ChromaDB. Hardened batch processing."""
-    all_s3_files = s3_service.list_files()
+async def ingest_documents():
+    """Detects documents in RDS with 'pending' status and adds them to ChromaDB. Hardened for multi-tenancy."""
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(DocumentMetadata).where(DocumentMetadata.ingestion_status == "pending")
+        )
+        pending_docs = result.scalars().all()
 
-    if not all_s3_files:
-        logger.info("No documents found in AWS S3.")
+    if not pending_docs:
+        logger.info("No pending documents for ingestion.")
         return
 
-    # Filter for files not yet indexed
-    new_files = [f for f in all_s3_files if not is_document_indexed(f)]
+    logger.info(f"Ingesting {len(pending_docs)} pending documents.")
 
-    if not new_files:
-        logger.info("All S3 documents are already indexed.")
-        return
-
-    logger.info(f"Ingesting {len(new_files)} new documents from S3.")
-
-    for filename in new_files:
+    for doc_meta in pending_docs:
+        filename = doc_meta.filename
+        s3_key = doc_meta.s3_key
+        user_id = doc_meta.user_id
+        
         try:
-            pages = extract_text_from_s3_pdf(filename)
-            if not pages: continue
+            # Mark as processing
+            async with async_session_factory() as db:
+                await db.execute(
+                    update(DocumentMetadata)
+                    .where(DocumentMetadata.id == doc_meta.id)
+                    .values(ingestion_status="processing")
+                )
+                await db.commit()
+
+            pages = extract_text_from_s3_pdf(s3_key, user_id=user_id)
+            if not pages: 
+                 # Mark as error if no pages extracted
+                async with async_session_factory() as db:
+                    await db.execute(update(DocumentMetadata).where(DocumentMetadata.id == doc_meta.id).values(ingestion_status="error"))
+                    await db.commit()
+                continue
 
             chunks = chunk_pages_semantically(pages)
             if not chunks: continue
@@ -156,28 +173,36 @@ def ingest_documents():
                 texts.append(enriched_text)
                 metadatas.append(c["metadata"])
                 
-                # Deterministic ID for idempotency
-                uid_string = f"{c['metadata']['source']}__p{c['metadata']['page']}__c{c['metadata']['chunk_index']}"
+                # Deterministic ID for idempotency (include user_id for safety)
+                uid_string = f"u{user_id}_{c['metadata']['source']}__p{c['metadata']['page']}__c{c['metadata']['chunk_index']}"
                 ids.append(str(uuid.uuid5(uuid.NAMESPACE_DNS, uid_string)))
 
-            # HARDENING: Safe batching to prevent API rate limits and OOM
+            # HARDENING: Safe batching
             BATCH_SIZE = 10
             for i in range(0, len(texts), BATCH_SIZE):
-                try:
-                    logger.info(f"Chroma: Adding batch {i//BATCH_SIZE + 1} for {filename}")
-                    vector_store.add_texts(
-                        texts=texts[i:i + BATCH_SIZE],
-                        metadatas=metadatas[i:i + BATCH_SIZE],
-                        ids=ids[i:i + BATCH_SIZE]
-                    )
-                    logger.info(f"Ingested batch for {filename} ({i+len(texts[i:i+BATCH_SIZE])}/{len(texts)})")
-                    # time.sleep(2) # Modest throttle for API safety
-                except Exception as batch_err:
-                    logger.error(f"Batch storage error for {filename}: {batch_err}")
-                    time.sleep(10) # Exponential-like backoff
+                await asyncio.to_thread(
+                    vector_store.add_texts,
+                    texts=texts[i:i + BATCH_SIZE],
+                    metadatas=metadatas[i:i + BATCH_SIZE],
+                    ids=ids[i:i + BATCH_SIZE]
+                )
             
-            logger.info(f"Successfully fully indexed: {filename}")
+            # Mark as completed
+            async with async_session_factory() as db:
+                await db.execute(
+                    update(DocumentMetadata)
+                    .where(DocumentMetadata.id == doc_meta.id)
+                    .values(ingestion_status="completed")
+                )
+                await db.commit()
+                
+            logger.info(f"Successfully indexed: {filename} for user {user_id}")
         except Exception as doc_err:
+            logger.error(f"Ingestion error for {filename}: {doc_err}")
+            async with async_session_factory() as db:
+                await db.execute(update(DocumentMetadata).where(DocumentMetadata.id == doc_meta.id).values(ingestion_status="error"))
+                await db.commit()
+
             logger.error(f"Failed to process document {filename}: {doc_err}")
 
     clear_chat_cache()

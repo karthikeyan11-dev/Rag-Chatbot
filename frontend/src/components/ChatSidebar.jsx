@@ -9,6 +9,8 @@ export default function ChatSidebar({
   onSelectSession,
   onDeleteSession,
   fetchSessions,
+  onLogout,
+  user,
 }) {
   useEffect(() => {
     // Only fetch if sessions is empty or we specifically need a refresh
@@ -183,18 +185,37 @@ export default function ChatSidebar({
 
         <div className="flex items-center gap-3 py-1">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-white overflow-hidden shadow-inner">
-            <div className="w-full h-full bg-blue-600/20 flex items-center justify-center text-blue-400">
-              AI
+            <div className="w-full h-full bg-blue-600/20 flex items-center justify-center text-blue-400 capitalize">
+              {user?.username?.charAt(0) || "U"}
             </div>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-bold text-white truncate text-opacity-90">
-              SWS User
+              {user?.username || "Unknown User"}
             </p>
             <p className="text-[10px] text-blue-400/80 font-black uppercase tracking-widest mt-0.5">
               Verified
             </p>
           </div>
+          <button
+            onClick={onLogout}
+            className="p-1.5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors group"
+            title="Logout"
+          >
+            <svg
+              className="w-5 h-5 group-hover:scale-110 transition-transform"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+              />
+            </svg>
+          </button>
         </div>
       </div>
     </aside>

@@ -1,15 +1,17 @@
 import asyncio
 import sys
 import os
+
+# --- CRITICAL: FASTAPI ENTRY POINT ---
+# This must be at the very top for Windows compatibility
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from dotenv import load_dotenv
 
 # Pre-load environment variables to ensure they are available before imports
-dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+dotenv_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(dotenv_path)
-
-# Windows-specific fix for Psycopg/SQLAlchemy async
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import logging
 import uvicorn
@@ -17,8 +19,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
-import threading
-import time
 
 from app.routes.chat import router as chat_router
 from app.routes.upload import router as upload_router
@@ -44,17 +44,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f'DB Initialization failure: {e}')
     
-    # Ingestion should NOT run automatically on startup if it blocks or relies on external triggers
-    # Moving to a safer background pattern that doesn't use time.sleep(30)
     async def startup_check():
-        await asyncio.sleep(5) # Non-blocking wait
+        await asyncio.sleep(5)
         logger.info("Performing startup document check...")
         try:
-            # Only run if not already running
             from app.routes.upload import _ingestion_lock
             if not _ingestion_lock:
                 from app.services.ingest import ingest_documents
-                # ingest_documents is already async
+                # Run the async ingestion properly in the event loop
                 await ingest_documents()
         except Exception as e:
             logger.error(f'Startup ingestion error: {e}')
@@ -85,12 +82,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        'http://localhost:5173',
-        'http://localhost:5174',
-        'http://127.0.0.1:5173',
-        'http://127.0.0.1:5174',
-    ],
+    allow_origins=['*'], # Simplification for debug, restore later if needed
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],
@@ -101,9 +93,5 @@ app.include_router(chat_router, prefix='/api')
 app.include_router(upload_router, prefix='/api')
 app.include_router(sessions_router, prefix='/api')
 
-@app.get('/')
-def health_check():
-    return {'status': 'healthy', 'service': 'RAG-Chatbot'}
-
-if __name__ == '__main__':
-    uvicorn.run('app.main:app', host='127.0.0.1', port=8000, reload=True)
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

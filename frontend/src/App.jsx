@@ -1,23 +1,51 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import DocumentUpload from "./pages/DocumentUpload";
 import AIAssistant from "./pages/AIAssistant";
 import ChatSidebar from "./components/ChatSidebar";
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 import { getSessions } from "./services/api";
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authMode, setAuthMode] = useState("login"); // login, signup
   const [activeTab, setActiveTab] = useState("assistant");
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const assistantRef = useRef(null);
 
+  // Check for existing session on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem("user");
+    const token = localStorage.getItem("auth_token");
+    if (savedUser && token) {
+      setUser(JSON.parse(savedUser));
+    }
+  }, []);
+
+  const handleLogin = (data) => {
+    localStorage.setItem("auth_token", data.access_token);
+    localStorage.setItem("user", JSON.stringify(data.user));
+    setUser(data.user);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("user");
+    setUser(null);
+    setSessions([]);
+    setActiveSessionId(null);
+  };
+
   const fetchSessions = useCallback(async () => {
+    if (!user) return;
     try {
       const data = await getSessions();
       setSessions(data);
     } catch (err) {
       console.error("Error fetching sessions:", err);
     }
-  }, []);
+  }, [user]);
 
   const handleNewChat = () => {
     setActiveSessionId(null);
@@ -41,6 +69,20 @@ export default function App() {
     }
   };
 
+  if (!user) {
+    return authMode === "login" ? (
+      <Login
+        onLogin={handleLogin}
+        onSwitchToSignup={() => setAuthMode("signup")}
+      />
+    ) : (
+      <Signup
+        onSignupSuccess={() => setAuthMode("login")}
+        onSwitchToLogin={() => setAuthMode("login")}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-row h-screen bg-[#f8fafc] font-sans selection:bg-blue-100 selection:text-blue-900 overflow-hidden">
       {/* ChatGPT-style Sidebar */}
@@ -53,6 +95,8 @@ export default function App() {
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
         fetchSessions={fetchSessions}
+        onLogout={handleLogout}
+        user={user}
       />
 
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

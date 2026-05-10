@@ -6,19 +6,21 @@ from app.db.models import ChatSession, ChatMessage, DocumentMetadata
 
 # --- Session & Message Services ---
 
-async def create_session(db: AsyncSession, session_id: str, title: str = "New Chat"):
+async def create_session(db: AsyncSession, session_id: str, title: str = "New Chat", user_id: int = None):
     """Create a new chat session."""
-    session = ChatSession(id=session_id, title=title)
+    session = ChatSession(id=session_id, title=title, user_id=user_id)
     db.add(session)
     await db.commit()
     await db.refresh(session)
     return session
 
-async def get_all_sessions(db: AsyncSession):
-    """Get all chat sessions ordered by updated_at."""
-    result = await db.execute(
-        select(ChatSession).order_by(desc(ChatSession.updated_at))
-    )
+async def get_all_sessions(db: AsyncSession, user_id: int = None):
+    """Get all chat sessions for a specific user ordered by updated_at."""
+    stmt = select(ChatSession)
+    if user_id is not None:
+        stmt = stmt.where(ChatSession.user_id == user_id)
+    
+    result = await db.execute(stmt.order_by(desc(ChatSession.updated_at)))
     return result.scalars().all()
 
 async def get_session_messages(db: AsyncSession, session_id: str):
@@ -64,10 +66,14 @@ async def delete_session(db: AsyncSession, session_id: str):
 
 # --- Document Metadata Services (Hardening) ---
 
-async def register_document(db: AsyncSession, filename: str, s3_key: str, document_id: str):
-    """Register or update document metadata in RDS."""
-    # Check if exists
-    result = await db.execute(select(DocumentMetadata).where(DocumentMetadata.filename == filename))
+async def register_document(db: AsyncSession, filename: str, s3_key: str, document_id: str, user_id: int):
+    """Register or update document metadata in RDS with user ownership."""
+    # Check if exists for THIS user
+    result = await db.execute(
+        select(DocumentMetadata)
+        .where(DocumentMetadata.filename == filename)
+        .where(DocumentMetadata.user_id == user_id)
+    )
     existing = result.scalar_one_or_none()
     
     if existing:
@@ -79,27 +85,46 @@ async def register_document(db: AsyncSession, filename: str, s3_key: str, docume
         new_doc = DocumentMetadata(
             filename=filename,
             s3_key=s3_key,
-            document_id=document_id
+            document_id=document_id,
+            user_id=user_id
         )
         db.add(new_doc)
     
     await db.commit()
 
-async def update_ingestion_status(db: AsyncSession, filename: str, status: str):
-    """Update the ingestion status of a document."""
+async def get_all_documents(db: AsyncSession, user_id: int = None):
+    """List documents belonging to a specific user from RDS metadata."""
+    stmt = select(DocumentMetadata)
+    if user_id is not None:
+        stmt = stmt.where(DocumentMetadata.user_id == user_id)
+        
+    result = await db.execute(stmt.order_by(desc(DocumentMetadata.upload_date)))
+    return result.scalars().all()
+
+async def delete_document_metadata(db: AsyncSession, filename: str, user_id: int):
+    """Remove document metadata from RDS for a specific user."""
     await db.execute(
-        update(DocumentMetadata)
+        delete(DocumentMetadata)
         .where(DocumentMetadata.filename == filename)
-        .values(ingestion_status=status)
+        .where(DocumentMetadata.user_id == user_id)
     )
     await db.commit()
 
-async def get_all_documents(db: AsyncSession):
-    """List all documents from RDS metadata."""
-    result = await db.execute(select(DocumentMetadata).order_by(DocumentMetadata.upload_date))
-    return result.scalars().all()
+async def get_document_by_name(db: AsyncSession, filename: str, user_id: int):
+    """Get metadata for a specific document belonging to a user."""
+    result = await db.execute(
+        select(DocumentMetadata)
+        .where(DocumentMetadata.filename == filename)
+        .where(DocumentMetadata.user_id == user_id)
+    )
+    return result.scalar_one_or_none()
 
-async def delete_document_metadata(db: AsyncSession, filename: str):
-    """Remove document metadata from RDS."""
-    await db.execute(delete(DocumentMetadata).where(DocumentMetadata.filename == filename))
+async def update_ingestion_status(db: AsyncSession, filename: str, status: str, user_id: int):
+    """Update ingestion status for a user's document."""
+    await db.execute(
+        update(DocumentMetadata)
+        .where(DocumentMetadata.filename == filename)
+        .where(DocumentMetadata.user_id == user_id)
+        .values(ingestion_status=status)
+    )
     await db.commit()

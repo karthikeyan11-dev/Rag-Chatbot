@@ -42,27 +42,24 @@ async def _get_collection_hash():
         logger.warning(f"Audit: Failed to generate collection hash: {e}")
         return str(get_collection_size())
 
-def get_hybrid_retriever():
+def get_hybrid_retriever(user_id: int = None):
     """
-    Initialize or return a cached BM25 retriever.
-    Audit: Simplified to avoid async/loop issues on Windows.
+    Initialize or return a BM25 retriever focused on specific user's documents.
+    Audit: User-scoped to prevent cross-tenant retrieval.
     """
-    global _bm25_retriever, _last_cache_key
-    
-    # Simplified cache key
-    cache_key = str(get_collection_size())
-
-    if _bm25_retriever is not None and cache_key == _last_cache_key:
-        return _bm25_retriever
-    
-    if cache_key.startswith("0") or cache_key == "empty":
-        return None
-        
     try:
-        logger.info(f"Audit: Rebuilding BM25 index (Reason: Cache invalid or stale). Key: {cache_key}")
         store = get_vector_store()
-        results = store._collection.get()
         
+        # Scope to current user's documents in ChromaDB metadata
+        filters = {}
+        if user_id is not None:
+            filters = {"user_id": user_id}
+            
+        results = store._collection.get(where=filters)
+        
+        if not results["documents"]:
+            return None
+            
         documents = []
         for i in range(len(results["documents"])):
             documents.append(Document(
@@ -70,12 +67,11 @@ def get_hybrid_retriever():
                 metadata=results["metadatas"][i]
             ))
             
-        _bm25_retriever = BM25Retriever.from_documents(documents)
-        _bm25_retriever.k = TOP_K_KEYWORD
-        _last_cache_key = cache_key
-        return _bm25_retriever
+        retriever = BM25Retriever.from_documents(documents)
+        retriever.k = TOP_K_KEYWORD
+        return retriever
     except Exception as e:
-        logger.error(f"Audit: BM25 build error: {e}")
+        logger.error(f"Audit: BM25 build error for user {user_id}: {e}")
         return None
 
 @retry(
@@ -83,12 +79,14 @@ def get_hybrid_retriever():
     wait=wait_exponential(multiplier=1, min=4, max=10),
     reraise=True
 )
-def perform_hybrid_search(query: str) -> list[Document]:
-    """Perform Hybrid Search and deduplicate with hardened ID logic."""
-    vector_docs = similarity_search(query, top_k=TOP_K_VECTOR)
+def perform_hybrid_search(query: str, user_id: int = None) -> list[Document]:
+    """Perform Hybrid Search and deduplicate with user-scoped isolation."""
+    # 1. Scoped Vector Search
+    vector_docs = similarity_search(query, top_k=TOP_K_VECTOR, user_id=user_id)
     
+    # 2. Scoped Keyword Search (BM25)
     keyword_docs = []
-    retriever = get_hybrid_retriever()
+    retriever = get_hybrid_retriever(user_id=user_id)
     if retriever:
         keyword_docs = retriever.invoke(query)
     
@@ -96,6 +94,11 @@ def perform_hybrid_search(query: str) -> list[Document]:
     unique_docs = []
     
     for doc in vector_docs + keyword_docs:
+        # User isolation double-check
+        if user_id is not None and doc.metadata.get("user_id") != user_id:
+            logger.warning(f"SECURITY AUDIT: Blocked cross-tenant doc leak for user {user_id}")
+            continue
+            
         # Hardened deduplication using source + page + chunk_index
         src = doc.metadata.get('source', 'unknown')
         pg = doc.metadata.get('page', '0')
@@ -108,26 +111,19 @@ def perform_hybrid_search(query: str) -> list[Document]:
             
     return unique_docs[:FINAL_K]
 
-def get_answer(question: str, chat_history: list = None) -> dict:
-    """Hardened RAG pipeline with strict grounding and verified source attribution."""
-    collection_size = get_collection_size()
-    
-    if collection_size == 0:
-        return {
-            "answer": "No company documents were uploaded. Please upload PDFs to the Knowledge Base to begin.",
-            "sources": [],
-        }
-
-    # 1. HYBRID RETRIEVAL
+async def get_answer(question: str, chat_history: list = None, user_id: int = None) -> dict:
+    """Hardened RAG pipeline with strict grounding and user-scoped isolation."""
+    # 1. HYBRID RETRIEVAL (Scoped to user)
     try:
-        docs = perform_hybrid_search(question)
+        # perform_hybrid_search is a sync function that calls blocking Chroma/BM25 code
+        docs = await asyncio.to_thread(perform_hybrid_search, question, user_id=user_id)
     except Exception as e:
-        logger.error(f"Audit: Retrieval error: {e}")
-        return {"answer": "I encountered an error accessing the knowledge base.", "sources": []}
+        logger.error(f"Audit: Retrieval error for user {user_id}: {e}")
+        return {"answer": "I encountered an error accessing your documents.", "sources": []}
 
     if not docs:
         return {
-            "answer": "I could not find information related to that question in the uploaded company documents.",
+            "answer": "I could not find information related to that question in your uploaded documents.",
             "sources": []
         }
 
@@ -144,7 +140,8 @@ def get_answer(question: str, chat_history: list = None) -> dict:
     messages.append(HumanMessage(content=question))
 
     try:
-        response = llm.invoke(messages)
+        # llm.invoke is a blocking network call
+        response = await asyncio.to_thread(llm.invoke, messages)
         answer = response.content.strip()
 
         # Strict Fallback Check
@@ -159,10 +156,12 @@ def get_answer(question: str, chat_history: list = None) -> dict:
         doc_pages = {}
         for doc in docs:
             raw_source = doc.metadata.get("source", "Unknown")
-            clean_filename = raw_source.split('/')[-1]
+            # Handle potential path vs filename
+            clean_filename = raw_source.split('/')[-1].split('\\')[-1] 
             page_num = doc.metadata.get("page", "?")
             
             # Grounding check: ensure the LLM actually discussed this document
+            # or include if few docs to be helpful
             if clean_filename.lower() in answer.lower() or len(docs) <= 3:
                 if clean_filename not in doc_pages:
                     doc_pages[clean_filename] = set()

@@ -3,10 +3,6 @@ import logging
 import asyncio
 import sys
 
-# Windows-specific fix for Psycopg/SQLAlchemy async
-if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from app.db.models import Base
@@ -14,6 +10,18 @@ from dotenv import load_dotenv
 
 # Configure logging for database module
 logger = logging.getLogger(__name__)
+
+# --- CRITICAL: EVENT LOOP POLICY MUST BE SET BEFORE ENGINE CREATION ON WINDOWS ---
+if sys.platform == 'win32':
+    try:
+        # Check if we are already in a running loop
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No loop running, safe to set policy
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+
 
 # Load environment variables
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "backend", ".env")
