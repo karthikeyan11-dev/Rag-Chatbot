@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
+from app.db.models import ChatSession, ChatMessage
 from app.services import chat_history as chat_service
 from pydantic import BaseModel
 from typing import List, Optional
@@ -69,5 +70,8 @@ async def get_session(session_id: str, db: AsyncSession = Depends(get_db)):
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str, db: AsyncSession = Depends(get_db)):
     """Delete a chat session."""
-    await chat_service.delete_session(db, session_id)
+    from sqlalchemy import delete
+    await db.execute(delete(ChatMessage).where(ChatMessage.session_id == session_id))
+    await db.execute(delete(ChatSession).where(ChatSession.id == session_id))
+    await db.commit()
     return {"status": "success", "message": "Session deleted"}

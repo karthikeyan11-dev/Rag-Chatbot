@@ -41,8 +41,12 @@ engine = create_async_engine(
     DATABASE_URL, 
     echo=False,
     pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20
+    pool_size=5,        # Reduced from 10 to be safer for small RDS instances
+    max_overflow=10,    # Reduced from 20
+    connect_args={
+        "connect_timeout": 10,
+        "prepare_threshold": 0 # Disable prepared statements for some pgpool compatibility
+    }
 )
 
 # Create async session factory

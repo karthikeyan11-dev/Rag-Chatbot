@@ -46,7 +46,13 @@ def _run_ingestion_sync():
                     if doc.ingestion_status == "pending":
                         await chat_service.update_ingestion_status(db, doc.filename, "completed")
         
-        asyncio.run(update_status())
+        # Windows-safe execution of async status update
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(update_status())
+        finally:
+            loop.close()
         
         chunk_count = get_collection_size()
         _ingestion_status = {
@@ -65,7 +71,13 @@ def _run_ingestion_sync():
                         if doc.ingestion_status == "pending":
                             await chat_service.update_ingestion_status(db, doc.filename, "error")
             except: pass
-        asyncio.run(mark_errors())
+            
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(mark_errors())
+        finally:
+            loop.close()
     finally:
         _ingestion_lock = False
 

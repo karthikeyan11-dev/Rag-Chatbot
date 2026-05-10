@@ -35,21 +35,30 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info('Starting Cloud-Native RAG chatbot...')
     try:
-        await init_db()
+        # Initialize DB with a timeout to prevent startup hang
+        await asyncio.wait_for(init_db(), timeout=20.0)
         logger.info('Database initialized successfully.')
+    except asyncio.TimeoutError:
+        logger.error('Database initialization timed out.')
     except Exception as e:
         logger.error(f'DB Initialization failure: {e}')
     
-    def startup_ingest():
-        time.sleep(30)
+    # Ingestion should NOT run automatically on startup if it blocks or relies on external triggers
+    # Moving to a safer background pattern that doesn't use time.sleep(30)
+    async def startup_check():
+        await asyncio.sleep(5) # Non-blocking wait
+        logger.info("Performing startup document check...")
         try:
-            from app.services.ingest import ingest_documents
-            ingest_documents()
+            # Only run if not already running
+            from app.routes.upload import _ingestion_lock
+            if not _ingestion_lock:
+                from app.services.ingest import ingest_documents
+                # Run sync in threadpool
+                await asyncio.to_thread(ingest_documents)
         except Exception as e:
             logger.error(f'Startup ingestion error: {e}')
 
-    thread = threading.Thread(target=startup_ingest, daemon=True)
-    thread.start()
+    asyncio.create_task(startup_check())
     yield
     logger.info('Shutting down RAG chatbot. Cleaning up resources...')
     try:

@@ -22,6 +22,13 @@ backend/app/chroma_db/
 backend/app/data/pdfs/
 backend/app/data/cache/
 backend/app/data/*.db
+backend/app/data/**/*.pdf
+backend/app/chroma_db/**
+**/chroma.sqlite3
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
 
 # Frontend
 node_modules/

@@ -74,7 +74,7 @@ def chunk_pages_semantically(pages: list[dict]) -> list[dict]:
         
     try:
         embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
+            model="models/gemini-embedding-2",
             google_api_key=os.getenv("GOOGLE_API_KEY"),
             task_type="retrieval_document"
         )

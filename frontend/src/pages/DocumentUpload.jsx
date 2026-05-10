@@ -32,26 +32,28 @@ export default function DocumentUpload() {
   };
 
   const startPolling = () => {
-    // Poll ingestion status every 2 seconds
+    // Poll documents and ingestion status every 3 seconds
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       try {
+        // Always fetch documents to update the document list status (pending -> completed)
+        await fetchDocuments();
+
         const status = await getIngestionStatus();
         setIngestionStatus(status);
+
         if (status.status === "complete" || status.status === "error") {
           clearInterval(pollRef.current);
           pollRef.current = null;
-          // Refresh document list after ingestion completes
-          fetchDocuments();
           // Auto-clear success status after 8 seconds
           if (status.status === "complete") {
             setTimeout(() => setIngestionStatus(null), 8000);
           }
         }
-      } catch {
-        // ignore polling errors
+      } catch (err) {
+        console.warn("Polling error:", err);
       }
-    }, 2000);
+    }, 3000);
   };
 
   const handleUploadSuccess = () => {

@@ -18,7 +18,7 @@ def test_embeddings():
     
     try:
         embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
+            model="models/gemini-embedding-2",
             google_api_key=api_key,
             task_type="retrieval_document"
         )

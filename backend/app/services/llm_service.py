@@ -11,10 +11,11 @@ def get_llm() -> ChatGoogleGenerativeAI:
     """Return a singleton Gemini LLM instance with retry logic."""
     global _llm
     if _llm is None:
+        # Use gemini-2.0-flash which is confirmed available in the list
         _llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash",
             temperature=0,
-            max_retries=5,
+            max_retries=3,
             google_api_key=os.getenv("GOOGLE_API_KEY"),
         )
     return _llm

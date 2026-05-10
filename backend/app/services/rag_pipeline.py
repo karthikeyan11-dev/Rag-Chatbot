@@ -45,22 +45,12 @@ async def _get_collection_hash():
 def get_hybrid_retriever():
     """
     Initialize or return a cached BM25 retriever.
-    Audit: Improved cache invalidation using RDS metadata timestamps.
+    Audit: Simplified to avoid async/loop issues on Windows.
     """
     global _bm25_retriever, _last_cache_key
     
-    # Run async hash generation in the current loop (or a new one if needed)
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # In a request context, we use a specialized helper to avoid blocking
-            # For simplicity in this audit, we'll use a synchronous-friendly approach or block briefly
-            cache_key = asyncio.run_coroutine_threadsafe(_get_collection_hash(), loop).result()
-        else:
-            cache_key = asyncio.run(_get_collection_hash())
-    except Exception:
-        # Fallback to just size if async retrieval fails
-        cache_key = str(get_collection_size())
+    # Simplified cache key
+    cache_key = str(get_collection_size())
 
     if _bm25_retriever is not None and cache_key == _last_cache_key:
         return _bm25_retriever
