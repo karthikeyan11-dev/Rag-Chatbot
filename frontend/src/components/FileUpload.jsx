@@ -126,8 +126,8 @@ export default function FileUpload({ onUploadSuccess }) {
           </h3>
           <p className="text-sm text-slate-500 mb-6">
             {isUploading
-              ? "Your document is being stored in AWS S3 and registered in RDS."
-              : "Upload company policy documents to train the AI. Only PDF files are supported."}
+              ? "Your document is being processed and indexed for retrieval."
+              : "Upload PDF documents to expand the AI's knowledge base."}
           </p>
 
           <label

@@ -79,11 +79,11 @@ export default function App() {
                 <h1 className="text-xl font-extrabold text-slate-800 tracking-tight leading-none">
                   SWS AI{" "}
                   <span className="text-blue-600 italic font-medium">
-                    PolicyHub
+                    DocuHub
                   </span>
                 </h1>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
-                  Enterprise Knowledge Assistant
+                  Cross-Domain RAG Assistant
                 </p>
               </div>
             </div>

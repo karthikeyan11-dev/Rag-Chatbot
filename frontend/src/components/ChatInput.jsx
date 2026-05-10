@@ -71,9 +71,6 @@ export default function ChatInput({ onSend, isLoading, value: externalValue, onC
             )}
           </button>
         </div>
-        <p className="text-center text-[11px] font-medium text-slate-400 mt-3 flex items-center justify-center gap-1.5">
-          Answers sourced from SWS AI company documents only • Press Enter to send
-        </p>
       </div>
     </div>
   );

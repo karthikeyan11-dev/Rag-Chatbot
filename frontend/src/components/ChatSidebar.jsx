@@ -189,7 +189,7 @@ export default function ChatSidebar({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-bold text-white truncate text-opacity-90">
-              SWS Employee
+              SWS User
             </p>
             <p className="text-[10px] text-blue-400/80 font-black uppercase tracking-widest mt-0.5">
               Verified
