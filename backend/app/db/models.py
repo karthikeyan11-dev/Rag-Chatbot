@@ -53,5 +53,10 @@ class DocumentMetadata(Base):
     document_id = Column(String, nullable=False)
     upload_date = Column(DateTime, default=datetime.utcnow)
     ingestion_status = Column(String, default="pending")  # pending, completed, error
+    
+    # Phase 2: Document Intelligence
+    summary = Column(Text, nullable=True)
+    key_topics = Column(Text, nullable=True)  # Comma-separated or JSON
+    document_type = Column(String, nullable=True)
 
     user = relationship("User", back_populates="documents")

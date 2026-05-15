@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 
 export default function ChatSidebar({
   activeTab,
@@ -12,6 +12,8 @@ export default function ChatSidebar({
   onLogout,
   user,
 }) {
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
   useEffect(() => {
     // Only fetch if sessions is empty or we specifically need a refresh
     if (fetchSessions && sessions.length === 0) {
@@ -60,8 +62,61 @@ export default function ChatSidebar({
     },
   ];
 
+  const handleLogoutClick = () => {
+    setShowLogoutConfirm(true);
+  };
+
   return (
     <aside className="w-72 bg-[#0f172a] flex flex-col h-full text-slate-300 border-r border-slate-800 relative z-20">
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 w-full max-w-sm transform animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-500/10 text-red-500 mb-4 mx-auto">
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                />
+              </svg>
+            </div>
+
+            <h3 className="text-lg font-bold text-white text-center mb-2">
+              Confirm Logout
+            </h3>
+            <p className="text-slate-400 text-sm text-center mb-6">
+              Are you sure you want to log out of your account? You will need to
+              sign in again to access your chats.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  onLogout();
+                }}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-semibold shadow-lg shadow-red-900/20 transition-all active:scale-95"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Navigation Options - TOP */}
       <div className="p-3 space-y-1">
         <div className="px-3 mb-2">
@@ -186,19 +241,19 @@ export default function ChatSidebar({
         <div className="flex items-center gap-3 py-1">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-white overflow-hidden shadow-inner">
             <div className="w-full h-full bg-blue-600/20 flex items-center justify-center text-blue-400 capitalize">
-              {user?.username?.charAt(0) || "U"}
+              {user?.full_name?.charAt(0) || user?.username?.charAt(0) || "U"}
             </div>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-bold text-white truncate text-opacity-90">
-              {user?.username || "Unknown User"}
+              {user?.full_name || user?.username || "Guest User"}
             </p>
             <p className="text-[10px] text-blue-400/80 font-black uppercase tracking-widest mt-0.5">
               Verified
             </p>
           </div>
           <button
-            onClick={onLogout}
+            onClick={handleLogoutClick}
             className="p-1.5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors group"
             title="Logout"
           >

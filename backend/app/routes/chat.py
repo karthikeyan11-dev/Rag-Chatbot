@@ -54,32 +54,30 @@ async def chat(
             .where(ChatSession.user_id == current_user.id)
         )
         if not result.scalar_one_or_none():
-            # If session ID provided but not found/authorized, create new for THIS user
-            # Alternatively, reject. We'll create for user isolation.
             session_id = str(uuid.uuid4())
             await chat_service.create_session(db, session_id, user_id=current_user.id)
             logger.info(f"Created new session (prev invalid): {session_id} for user {current_user.id}")
 
+    # 1. Save user message to database IMMEDIATELY
+    await chat_service.add_message(db, session_id, "user", question)
+    
+    # 2. Extract context and history data into memory-only objects
+    # This allows the DB session to be partially idle during the LLM call
+    history_objs = await chat_service.get_session_messages(db, session_id)
+    chat_history_context = [{"role": msg.role, "content": msg.content} for msg in history_objs]
 
     try:
-        logger.info(f"Chat request received for session {session_id}: '{question[:80]}...'")
+        logger.info(f"Chat execution for session {session_id}")
         
-        # 1. Save user message to database
-        await chat_service.add_message(db, session_id, "user", question)
+        # 3. Generate Answer via RAG Pipeline
+        result = await get_answer(
+            question, 
+            chat_history=chat_history_context[:-1], 
+            user_id=current_user.id,
+            session_id=session_id
+        )
         
-        # 2. Get previous messages for context
-        history = await chat_service.get_session_messages(db, session_id)
-        
-        # Pass history to RAG pipeline (excluding current user message which is history[-1])
-        chat_history_context = []
-        for msg in history[:-1]:
-            chat_history_context.append({"role": msg.role, "content": msg.content})
-
-        # 3. Generate Answer via RAG Pipeline (Scoped to current user)
-        # Audit: updated get_answer to be async/thread-safe
-        result = await get_answer(question, chat_history=chat_history_context, user_id=current_user.id)
-        
-        # 4. Save assistant response to database
+        # 4. Save assistant response
         await chat_service.add_message(
             db, 
             session_id, 
@@ -95,6 +93,7 @@ async def chat(
         )
     except Exception as e:
         logger.error(f"Error processing chat request: {e}", exc_info=True)
+        await db.rollback()
         raise HTTPException(
             status_code=500,
             detail="An unexpected error occurred while processing your question. Please try again."

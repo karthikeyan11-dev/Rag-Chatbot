@@ -46,7 +46,7 @@ def get_vector_store() -> Chroma:
             _vector_store = None
      return _vector_store
 
-def similarity_search(query: str, top_k: int = 6, user_id: int = None):
+def similarity_search(query: str, top_k: int = 6, user_id: int = None, threshold: float = 0.9):
     store = get_vector_store()
     if store is None:
         logger.error('Vector store is not initialized. Cannot perform search.')
@@ -58,10 +58,11 @@ def similarity_search(query: str, top_k: int = 6, user_id: int = None):
         filter_dict = {"user_id": user_id}
 
     docs_and_scores = store.similarity_search_with_score(query, k=top_k, filter=filter_dict)
-    THRESHOLD = 0.9
-    filtered_docs = [doc for doc, score in docs_and_scores if score < THRESHOLD]
     
-    logger.info(f'Search returned {len(docs_and_scores)} total for user {user_id}; {len(filtered_docs)} passed threshold {THRESHOLD}')
+    # Phase 4 support: Adaptive Thresholding
+    filtered_docs = [doc for doc, score in docs_and_scores if score < threshold]
+    
+    logger.info(f'Search returned {len(docs_and_scores)} total for user {user_id}; {len(filtered_docs)} passed threshold {threshold}')
     return filtered_docs
 
 def get_collection_size() -> int:

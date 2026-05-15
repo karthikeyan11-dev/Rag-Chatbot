@@ -24,8 +24,19 @@ if sys.platform == 'win32':
 
 
 # Load environment variables
-dotenv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "backend", ".env")
-load_dotenv(dotenv_path)
+# Check multiple potential paths for .env
+env_search_paths = [
+    os.path.join(os.getcwd(), ".env"),
+    os.path.join(os.getcwd(), "backend", ".env"),
+    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "backend", ".env")
+]
+
+for path in env_search_paths:
+    if os.path.exists(path):
+        load_dotenv(path)
+        break
+else:
+    load_dotenv()
 
 # --- STRICT POSTGRESQL CONFIGURATION ---
 
@@ -49,11 +60,13 @@ engine = create_async_engine(
     DATABASE_URL, 
     echo=False,
     pool_pre_ping=True,
-    pool_size=5,        # Reduced from 10 to be safer for small RDS instances
-    max_overflow=10,    # Reduced from 20
+    pool_size=20,       # Increased for production load
+    max_overflow=0,     # Static pool size for stability
+    pool_recycle=1800,  # 30 mins
+    pool_timeout=60,    # 60s wait for pool availability
     connect_args={
-        "connect_timeout": 10,
-        "prepare_threshold": 0 # Disable prepared statements for some pgpool compatibility
+        "connect_timeout": 60,
+        "prepare_threshold": 0
     }
 )
 
@@ -61,7 +74,8 @@ engine = create_async_engine(
 async_session_factory = async_sessionmaker(
     engine, 
     expire_on_commit=False, 
-    class_=AsyncSession
+    class_=AsyncSession,
+    autoflush=False # Prevent accidental flushes that might hang if pool is tight
 )
 
 async def init_db():

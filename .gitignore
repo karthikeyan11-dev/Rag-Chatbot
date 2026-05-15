@@ -17,17 +17,39 @@ dist/
 .env.local
 .env.*.local
 
-# ChromaDB & Local Data
-backend/app/chroma_db/
-backend/app/data/pdfs/
-backend/app/data/cache/
-backend/app/data/*.db
-backend/app/data/**/*.pdf
-backend/app/chroma_db/**
-**/chroma.sqlite3
+# OS junk
+.DS_Store
+Thumbs.db
+*.tmp
+
+# AWS/Cloud
+.aws/
+credentials
+*.pem
+*.key
+
+# Test & Debug
+scripts/phase*_test.py
+scripts/test_*.py
+scripts/debug_*.py
+scripts/reingest_*.py
+pytest_cache/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Database & Cache
+**/chroma_db/
+**/data/pdfs/
+**/data/cache/
+*.db
+*.sqlite
+*.sqlite3
 **/__pycache__/
-*.py[cod]
-*.pyo
 *.pyd
 
 # Frontend

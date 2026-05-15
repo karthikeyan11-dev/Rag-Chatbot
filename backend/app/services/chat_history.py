@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from sqlalchemy import select, delete, desc, update
+from sqlalchemy import select, delete, desc, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ChatSession, ChatMessage, DocumentMetadata
 
@@ -34,6 +34,13 @@ async def get_session_messages(db: AsyncSession, session_id: str):
 
 async def add_message(db: AsyncSession, session_id: str, role: str, content: str, sources: list = None):
     """Add a message to a session and update the session's timestamp."""
+    # Fetch session explicitly to avoid lazy-loading issues in async context
+    session_result = await db.execute(select(ChatSession).where(ChatSession.id == session_id))
+    session = session_result.scalar_one_or_none()
+    
+    if not session:
+        return None
+
     message = ChatMessage(
         session_id=session_id,
         role=role,
@@ -42,19 +49,17 @@ async def add_message(db: AsyncSession, session_id: str, role: str, content: str
     )
     db.add(message)
     
-    # Update session's updated_at timestamp
-    session_result = await db.execute(select(ChatSession).where(ChatSession.id == session_id))
-    session = session_result.scalar_one_or_none()
-    if session:
-        session.updated_at = datetime.utcnow()
-        # If it's the first user message, update the title
-        if role == "user":
-            # Check message count
-            msg_count_result = await db.execute(
-                select(ChatMessage).where(ChatMessage.session_id == session_id)
-            )
-            if len(msg_count_result.scalars().all()) <= 1:
-                session.title = content[:40] + ("..." if len(content) > 40 else "")
+    session.updated_at = datetime.utcnow()
+    
+    # Update title if it's the first user message
+    if role == "user":
+        # Check message count without relying on lazy relationships
+        count_result = await db.execute(
+            select(func.count(ChatMessage.id)).where(ChatMessage.session_id == session_id)
+        )
+        msg_count = count_result.scalar()
+        if msg_count == 0: # This is the first message (not yet committed)
+            session.title = content[:40] + ("..." if len(content) > 40 else "")
 
     await db.commit()
     return message

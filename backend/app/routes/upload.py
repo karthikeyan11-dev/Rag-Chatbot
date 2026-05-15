@@ -29,12 +29,16 @@ async def _run_ingestion_sync():
     global _ingestion_status, _ingestion_lock
     
     if _ingestion_lock:
+        logger.info("Ingestion lock active, skipping redundant trigger.")
         return
         
     _ingestion_lock = True
     _ingestion_status = {"status": "processing", "message": "Synchronizing storage systems..."}
     
     try:
+        # HARDENING: Defensive sleep to ensure RDS commits are visible (RDS Propagation Delay)
+        await asyncio.sleep(1)
+        
         # 1. Clear cache
         clear_chat_cache()
         
@@ -42,7 +46,6 @@ async def _run_ingestion_sync():
         from app.services.ingest import ingest_documents
         
         # We run the async ingestion directly since uvicorn/fastapi handles the loop.
-        # Background tasks in FastAPI are run within the same loop.
         await ingest_documents()
         
         _ingestion_status = {

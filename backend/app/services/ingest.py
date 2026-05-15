@@ -7,6 +7,7 @@ import asyncio
 from langchain_experimental.text_splitter import SemanticChunker
 from app.services.vector_store import get_vector_store
 from app.services.s3_service import s3_service
+from app.services.llm_service import generate_document_intelligence
 from app.utils.cache_manager import clear_chat_cache
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from sqlalchemy import select, update
@@ -15,6 +16,38 @@ from app.db.models import DocumentMetadata
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+def extract_text_from_s3_pdf(s3_key: str, user_id: int = None) -> list[dict]:
+    """Retrieve PDF from S3 and extract text page by page using PyMuPDF."""
+    pages = []
+    try:
+        content = s3_service.get_file_content(s3_key)
+        if not content:
+            logger.error(f"S3: Failed to retrieve file content for {s3_key}")
+            return []
+
+        doc = fitz.open(stream=content, filetype="pdf")
+        filename = s3_key.split("/")[-1]
+        
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            text = page.get_text()
+            if text.strip():
+                pages.append({
+                    "text": clean_text(text),
+                    "metadata": {
+                        "source": filename,
+                        "page": page_num + 1,
+                        "user_id": user_id
+                    }
+                })
+        doc.close()
+        logger.info(f"PyMuPDF: Extracted {len(pages)} pages from {s3_key} for user {user_id}")
+        return pages
+    except Exception as e:
+        logger.error(f"Extraction error for {s3_key}: {e}")
+        return []
+
 
 def clean_text(text: str) -> str:
     """Perform text cleaning to improve embedding quality."""
@@ -149,6 +182,12 @@ async def ingest_documents():
                 )
                 await db.commit()
 
+            # EXTRA HARDENING: Re-fetch key from DB to ensure most current state
+            async with async_session_factory() as db:
+                curr = await db.execute(select(DocumentMetadata).where(DocumentMetadata.id == doc_meta.id))
+                curr_doc = curr.scalar()
+                s3_key = curr_doc.s3_key
+
             pages = extract_text_from_s3_pdf(s3_key, user_id=user_id)
             if not pages: 
                  # Mark as error if no pages extracted
@@ -156,6 +195,23 @@ async def ingest_documents():
                     await db.execute(update(DocumentMetadata).where(DocumentMetadata.id == doc_meta.id).values(ingestion_status="error"))
                     await db.commit()
                 continue
+
+            # Phase 2: Generate Document Intelligence
+            full_text_sample = "\n".join([p["text"] for p in pages])
+            intel = await generate_document_intelligence(full_text_sample)
+            
+            async with async_session_factory() as db:
+                await db.execute(
+                    update(DocumentMetadata)
+                    .where(DocumentMetadata.id == doc_meta.id)
+                    .values(
+                        summary=intel.get("summary"),
+                        key_topics=intel.get("key_topics") if isinstance(intel.get("key_topics"), str) else ", ".join(intel.get("key_topics", [])),
+                        document_type=intel.get("document_type")
+                    )
+                )
+                await db.commit()
+            logger.info(f"Generated intelligence for {filename}")
 
             chunks = chunk_pages_semantically(pages)
             if not chunks: continue

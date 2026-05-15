@@ -57,13 +57,6 @@ async def get_session(
         raise HTTPException(status_code=404, detail="Session not found or unauthorized")
         
     messages = await chat_service.get_session_messages(db, session_id)
-    return {
-        "id": session.id,
-        "title": session.title,
-        "updated_at": session.updated_at,
-        "messages": messages
-    }
-
     
     # Process messages to parse sources JSON
     import json

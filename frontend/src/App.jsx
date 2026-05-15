@@ -56,11 +56,9 @@ export default function App() {
   };
 
   const handleSelectSession = (sessionId) => {
-    setActiveSessionId(sessionId);
     setActiveTab("assistant");
-    if (assistantRef.current) {
-      assistantRef.current.handleSelectSession(sessionId);
-    }
+    setActiveSessionId(sessionId);
+    // Removed imperative call as useEffect handles it
   };
 
   const handleDeleteSession = async (sessionId) => {
@@ -134,23 +132,9 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-6">
-            <button className="text-slate-400 hover:text-blue-600 transition-colors relative group">
-              <svg
-                className="w-6 h-6 group-hover:scale-110 transition-transform"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-                />
-              </svg>
-              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white shadow-sm"></span>
-            </button>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-slate-200 to-slate-100 border-2 border-white shadow-md cursor-pointer hover:shadow-lg transition-shadow"></div>
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 border-2 border-white shadow-md flex items-center justify-center text-sm font-bold text-white uppercase transform transition-transform hover:scale-105 cursor-pointer">
+              {user?.full_name?.charAt(0) || user?.username?.charAt(0) || "U"}
+            </div>
           </div>
         </header>
 
@@ -163,7 +147,8 @@ export default function App() {
               <AIAssistant
                 ref={assistantRef}
                 fetchSessions={fetchSessions}
-                onSessionCreated={(id) => setActiveSessionId(id)}
+                activeSessionId={activeSessionId}
+                setActiveSessionId={setActiveSessionId}
               />
             )}
           </div>
