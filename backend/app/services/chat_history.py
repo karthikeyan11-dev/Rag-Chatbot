@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from sqlalchemy import select, delete, desc, update, func
+from sqlalchemy import select, delete, desc, update, func # pyright: ignore[reportMissingImports]
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import ChatSession, ChatMessage, DocumentMetadata
 
@@ -58,8 +58,10 @@ async def add_message(db: AsyncSession, session_id: str, role: str, content: str
             select(func.count(ChatMessage.id)).where(ChatMessage.session_id == session_id)
         )
         msg_count = count_result.scalar()
-        if msg_count == 0: # This is the first message (not yet committed)
-            session.title = content[:40] + ("..." if len(content) > 40 else "")
+        # If msg_count is 0 or 1 (the message we just db.add'ed might or might not be counted depending on flush)
+        # But we really want to check if this was the very first user message.
+        if msg_count <= 1: 
+            session.title = (content[:40] + ("..." if len(content) > 40 else "")) or "New Chat"
 
     await db.commit()
     return message

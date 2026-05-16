@@ -223,25 +223,43 @@ async def ingest_documents():
             metadatas = []
             ids = []
 
-            for c in chunks:
+            for idx, c in enumerate(chunks):
                 # Grounded content prefixing
                 enriched_text = f"Document: {c['metadata']['source']}\nPage: {c['metadata']['page']}\nContent: {c['text']}"
                 texts.append(enriched_text)
-                metadatas.append(c["metadata"])
+                
+                # Add debug metadata and ensure consistency
+                metadata = c["metadata"].copy()
+                metadata["debug_source"] = "e2e_verification"
+                metadata["filename"] = c["metadata"]["source"]
+                metadata["document_id"] = str(doc_meta.id)
+                metadatas.append(metadata)
                 
                 # Deterministic ID for idempotency (include user_id for safety)
                 uid_string = f"u{user_id}_{c['metadata']['source']}__p{c['metadata']['page']}__c{c['metadata']['chunk_index']}"
                 ids.append(str(uuid.uuid5(uuid.NAMESPACE_DNS, uid_string)))
 
+            # [CHROMA VERIFY] Log pre-insertion details
+            logger.info(f"[CHROMA VERIFY] Collection: {vector_store._collection.name}")
+            logger.info(f"[CHROMA VERIFY] Chunks Generated: {len(chunks)}")
+            logger.info(f"[CHROMA VERIFY] Sample Metadata: {metadatas[0] if metadatas else 'None'}")
+
             # HARDENING: Safe batching
             BATCH_SIZE = 10
             for i in range(0, len(texts), BATCH_SIZE):
+                batch_texts = texts[i:i + BATCH_SIZE]
+                batch_metadatas = metadatas[i:i + BATCH_SIZE]
+                batch_ids = ids[i:i + BATCH_SIZE]
+                
                 await asyncio.to_thread(
                     vector_store.add_texts,
-                    texts=texts[i:i + BATCH_SIZE],
-                    metadatas=metadatas[i:i + BATCH_SIZE],
-                    ids=ids[i:i + BATCH_SIZE]
+                    texts=batch_texts,
+                    metadatas=batch_metadatas,
+                    ids=batch_ids
                 )
+                logger.info(f"[CHROMA VERIFY] Inserted batch {i//BATCH_SIZE + 1}. Total so far: {min(i + BATCH_SIZE, len(texts))}")
+            
+            logger.info(f"[CHROMA VERIFY] Insert Success: TRUE for {filename}")
             
             # Mark as completed
             async with async_session_factory() as db:

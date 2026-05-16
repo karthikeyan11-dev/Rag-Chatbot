@@ -64,6 +64,8 @@ const AIAssistant = forwardRef((props, ref) => {
       loadSession();
     } else {
       setMessages([]);
+      setIsLoading(false);
+      setError(null);
     }
     return () => {
       isMounted = false;
@@ -112,7 +114,7 @@ const AIAssistant = forwardRef((props, ref) => {
   };
 
   const handleNewChat = () => {
-    props.setActiveSessionId(null);
+    setActiveSessionId(null);
     setMessages([]);
     setError(null);
     setInputValue("");

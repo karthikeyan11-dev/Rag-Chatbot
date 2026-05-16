@@ -1,6 +1,7 @@
 import os
 import logging
-from langchain_community.vectorstores import Chroma
+import chromadb
+from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from dotenv import load_dotenv
 
@@ -13,10 +14,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Persistence settings
+# Cloud settings
+CHROMA_API_KEY = os.getenv('CHROMA_API_KEY')
+CHROMA_TENANT = os.getenv('CHROMA_TENANT', 'default_tenant')
+CHROMA_DATABASE = os.getenv('CHROMA_DATABASE', 'default_database')
+CHROMA_HOST = os.getenv('CHROMA_HOST', 'https://api.trychroma.com')
+COLLECTION_NAME = os.getenv('CHROMA_COLLECTION_NAME', 'rag-chatbot-documents')
+
+# Persistence settings (for rollback/reference)
 DB_DIR = os.path.join(os.path.dirname(__file__), '..', 'chroma_db')
 DB_DIR = os.path.abspath(DB_DIR)
-COLLECTION_NAME = 'company_policies'
 
 _vector_store = None
 
@@ -24,8 +31,10 @@ def get_vector_store() -> Chroma:
      global _vector_store
      if _vector_store is None:
         try:
-            os.makedirs(DB_DIR, exist_ok=True)
-            logger.info(f'Using ChromaDB directory: {DB_DIR}')
+            logger.info(f'Initializing Chroma Cloud client. Host: {CHROMA_HOST}, Tenant: {CHROMA_TENANT}, DB: {CHROMA_DATABASE}')
+            
+            if not CHROMA_API_KEY:
+                logger.warning('CHROMA_API_KEY not found in environment variables.')
 
             embeddings = GoogleGenerativeAIEmbeddings(
                 model='models/gemini-embedding-2',
@@ -33,16 +42,28 @@ def get_vector_store() -> Chroma:
                 task_type='retrieval_document'
             )
 
+            # Initialize Remote Client
+            remote_client = chromadb.HttpClient(
+                host=CHROMA_HOST,
+                tenant=CHROMA_TENANT,
+                database=CHROMA_DATABASE,
+                settings=chromadb.Settings(
+                    chroma_client_auth_provider="chromadb.auth.token_authn.TokenAuthClientProvider",
+                    chroma_client_auth_credentials=CHROMA_API_KEY,
+                    chroma_auth_token_transport_header="X-Chroma-Token"
+                )
+            )
+
             _vector_store = Chroma(
+                client=remote_client,
                 collection_name=COLLECTION_NAME,
-                embedding_function=embeddings,
-                persist_directory=DB_DIR
+                embedding_function=embeddings
             )
             
             count = _vector_store._collection.count()
-            logger.info(f'ChromaDB initialized successfully. Collection size: {count}')
+            logger.info(f'Chroma Cloud initialized successfully. Collection size: {count}')
         except Exception as e:
-            logger.error(f'ChromaDB Initialization Error: {e}')
+            logger.error(f'Chroma Cloud Initialization Error: {e}')
             _vector_store = None
      return _vector_store
 

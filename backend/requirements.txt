@@ -4,8 +4,10 @@ python-dotenv==1.0.1
 python-multipart==0.0.12
 langchain==0.3.7
 langchain-community==0.3.7
+langchain-chroma==0.1.4
 langchain-experimental==0.3.3
 langchain-google-genai==2.0.4
+langchain-chroma==0.1.4
 chromadb==0.5.18
 pymupdf==1.24.13
 pydantic==2.9.2
